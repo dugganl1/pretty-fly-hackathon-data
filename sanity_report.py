@@ -675,6 +675,18 @@ def report_inventory_health(data):
 # Weakness dashboard
 # ---------------------------------------------------------------------------
 
+def _womens_in_period(data):
+    """Check if any womens products were sold in the reporting period."""
+    for li in data.line_items:
+        pid = data.variant_product.get(li["variant_id"], "")
+        if data.product_gender.get(pid) == "womens":
+            return True
+    return False
+
+
+_WOMENS_NA = "N/A — womens segment not yet launched (Dec 2025)"
+
+
 def report_weakness_dashboard(data):
     _section("WEAKNESS DASHBOARD — 8 Deliberate Signals")
 
@@ -691,6 +703,10 @@ def report_weakness_dashboard(data):
 def _weakness_1(data):
     print("\n  #1: Womens Meta CAC + hidden LTV")
     print("  " + "─" * 40)
+
+    if not _womens_in_period(data):
+        _line("  Status", _WOMENS_NA, indent=2)
+        return
 
     # Meta spend by campaign type
     mens_meta_spend = Decimal("0")
@@ -917,6 +933,11 @@ def _weakness_6(data):
 def _weakness_7(data):
     print("\n  #7: Womens sizing support tickets")
     print("  " + "─" * 40)
+
+    if not _womens_in_period(data):
+        _line("  Status", _WOMENS_NA, indent=2)
+        return
+
     # Already computed in report_support, just summary here
     mens_tickets = 0
     mens_sizing = 0
@@ -958,6 +979,10 @@ def _weakness_7(data):
 def _weakness_8(data):
     print("\n  #8: Slow-moving womens inventory")
     print("  " + "─" * 40)
+
+    if not _womens_in_period(data):
+        _line("  Status", _WOMENS_NA, indent=2)
+        return
 
     # Same DIO logic as report_inventory_health but focused on womens
     order_dates = [o["created_at"][:10] for o in data.orders if o.get("created_at")]
