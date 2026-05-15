@@ -663,13 +663,26 @@ def rule_13(loader):
         return True, err
     pos, bank_txns = data
 
-    # Sum of total_cost_gbp for POs where balance has been paid (fully settled)
-    po_paid_total = Decimal("0")
-    paid_count = 0
+    # Expected bank outflows from POs:
+    # - Fully paid (balance_paid_at set): deposit (50%) + balance (50%) = total_cost_gbp
+    # - Partially paid (deposit_paid_at set, balance not): deposit only (50%)
+    # - Not paid: nothing
+    expected_total = Decimal("0")
+    po_count = 0
     for po in pos:
-        if po.get("balance_paid_at") and po["balance_paid_at"].strip():
-            po_paid_total += D(po["total_cost_gbp"])
-            paid_count += 1
+        cost = D(po["total_cost_gbp"])
+        has_deposit = (po.get("deposit_paid_at") or "").strip() != ""
+        has_balance = (po.get("balance_paid_at") or "").strip() != ""
+
+        if has_balance:
+            # Fully paid: deposit + balance = total
+            expected_total += cost
+            po_count += 1
+        elif has_deposit:
+            # Deposit only: 50%
+            deposit = cost / 2
+            expected_total += deposit.quantize(Decimal("0.01"))
+            po_count += 1
 
     # Sum of supplier bank outflows
     supplier_total = Decimal("0")
@@ -677,16 +690,16 @@ def rule_13(loader):
         if _is_supplier(bt.get("description", "")):
             supplier_total += abs(D(bt["amount_gbp"]))
 
-    diff = po_paid_total - supplier_total
-    # Tolerance: 1p per PO (FX rounding)
-    tol = TOLERANCE * max(paid_count, 1)
+    diff = expected_total - supplier_total
+    # Tolerance: 1p per PO (rounding from 50% splits)
+    tol = TOLERANCE * max(po_count, 1)
     if abs(diff) > tol:
         return False, (
-            f"PO payments vs bank: po_total_cost={po_paid_total}, "
+            f"PO payments vs bank: expected={expected_total}, "
             f"supplier_bank_outflows={supplier_total}, diff={diff}"
         )
     return True, (
-        f"{paid_count} fully-paid POs ({po_paid_total}) match "
+        f"{po_count} POs with payments ({expected_total}) match "
         f"supplier bank outflows ({supplier_total})"
     )
 
