@@ -9,31 +9,33 @@ from . import config
 
 
 # Google campaigns (name, type, monthly_spend_range, roas_target)
+# Total Google ~£28k/month to hit ~22% marketing/revenue at £7M annual
 GOOGLE_CAMPAIGNS = [
-    ("Brand_Search_UK", "search", (1500, 2500), 5.0),
-    ("Brand_Search_EU", "search", (400, 800), 4.0),
-    ("Shopping_Hoodies_UK", "shopping", (1200, 2000), 3.5),
-    ("Shopping_Tees_UK", "shopping", (800, 1500), 3.8),
-    ("Shopping_All_EU", "shopping", (500, 900), 3.0),
+    ("Brand_Search_UK", "search", (5000, 8000), 5.0),
+    ("Brand_Search_EU", "search", (1500, 3000), 4.0),
+    ("Shopping_Hoodies_UK", "shopping", (4000, 6000), 3.5),
+    ("Shopping_Tees_UK", "shopping", (3000, 5000), 3.8),
+    ("Shopping_All_EU", "shopping", (2000, 3500), 3.0),
     ("Generic_Streetwear_UK", "search", (700, 900), 1.2),  # Weakness #2
-    ("PMax_Menswear_UK", "pmax", (2000, 3500), 3.5),
+    ("PMax_Menswear_UK", "pmax", (8000, 12000), 3.5),
 ]
 
 # Meta campaigns (name, objective, monthly_spend_range, roas_target, placement_weights)
+# Total Meta ~£32k/month pre-womens, ~£37k/month post-womens
 META_CAMPAIGNS = [
-    ("Prospecting_Mens_UK", "conversions", (2500, 4000), 3.0,
+    ("Prospecting_Mens_UK", "conversions", (10000, 15000), 3.0,
      {"instagram_feed": 0.4, "facebook_feed": 0.3, "instagram_stories": 0.2, "reels": 0.1}),
-    ("Prospecting_Mens_EU", "conversions", (800, 1500), 2.5,
+    ("Prospecting_Mens_EU", "conversions", (4000, 7000), 2.5,
      {"instagram_feed": 0.4, "facebook_feed": 0.3, "instagram_stories": 0.2, "reels": 0.1}),
-    ("Retargeting_AllUsers", "conversions", (1000, 2000), 5.0,
+    ("Retargeting_AllUsers", "conversions", (5000, 8000), 5.0,
      {"instagram_feed": 0.3, "facebook_feed": 0.4, "instagram_stories": 0.2, "reels": 0.1}),
-    ("Brand_Awareness_UK", "awareness", (500, 1000), 0.0,
+    ("Brand_Awareness_UK", "awareness", (2000, 4000), 0.0,
      {"instagram_feed": 0.3, "reels": 0.4, "instagram_stories": 0.3}),
 ]
 
 # Womens Meta campaign (starts Dec 2025) — Weakness #1
 WOMENS_META_CAMPAIGN = (
-    "Womens_Launch_Prospecting", "conversions", (4000, 6000), 1.0,
+    "Womens_Launch_Prospecting", "conversions", (4500, 6500), 1.0,
     {"instagram_feed": 0.35, "facebook_feed": 0.25, "instagram_stories": 0.25, "reels": 0.15}
 )
 

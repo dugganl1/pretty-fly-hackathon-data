@@ -85,9 +85,6 @@ def main():
 
     # Stage 2: Purchase orders
     print("Stage 2: Purchase orders...")
-    # Need to make stage1_products accessible from stage2
-    import generators.stage1_products
-    config.stage1_products = generators.stage1_products
     s2 = stage2_purchase_orders.generate(cfg, all_data)
     all_data.update(s2)
     write_csv(data_dir, "purchase_orders.csv", s2["purchase_orders"])

@@ -663,25 +663,32 @@ def rule_13(loader):
         return True, err
     pos, bank_txns = data
 
-    # Expected bank outflows from POs:
-    # - Fully paid (balance_paid_at set): deposit (50%) + balance (50%) = total_cost_gbp
-    # - Partially paid (deposit_paid_at set, balance not): deposit only (50%)
-    # - Not paid: nothing
+    # Determine the bank's observed date range
+    bank_dates = [bt["date"] for bt in bank_txns if bt.get("date")]
+    if not bank_dates:
+        return True, "N/A — no bank transactions"
+    bank_start = min(bank_dates)
+    bank_end = max(bank_dates)
+
+    # Expected bank outflows: only count payments whose dates fall within the
+    # bank's date range (deposits before the window aren't in the bank)
     expected_total = Decimal("0")
     po_count = 0
     for po in pos:
         cost = D(po["total_cost_gbp"])
-        has_deposit = (po.get("deposit_paid_at") or "").strip() != ""
-        has_balance = (po.get("balance_paid_at") or "").strip() != ""
+        dep_str = (po.get("deposit_paid_at") or "").strip()
+        bal_str = (po.get("balance_paid_at") or "").strip()
+        deposit_amt = (cost / 2).quantize(Decimal("0.01"))
+        balance_amt = cost - deposit_amt
 
-        if has_balance:
-            # Fully paid: deposit + balance = total
-            expected_total += cost
-            po_count += 1
-        elif has_deposit:
-            # Deposit only: 50%
-            deposit = cost / 2
-            expected_total += deposit.quantize(Decimal("0.01"))
+        contributed = False
+        if dep_str and bank_start <= dep_str <= bank_end:
+            expected_total += deposit_amt
+            contributed = True
+        if bal_str and bank_start <= bal_str <= bank_end:
+            expected_total += balance_amt
+            contributed = True
+        if contributed:
             po_count += 1
 
     # Sum of supplier bank outflows
@@ -691,7 +698,6 @@ def rule_13(loader):
             supplier_total += abs(D(bt["amount_gbp"]))
 
     diff = expected_total - supplier_total
-    # Tolerance: 1p per PO (rounding from 50% splits)
     tol = TOLERANCE * max(po_count, 1)
     if abs(diff) > tol:
         return False, (
@@ -699,7 +705,7 @@ def rule_13(loader):
             f"supplier_bank_outflows={supplier_total}, diff={diff}"
         )
     return True, (
-        f"{po_count} POs with payments ({expected_total}) match "
+        f"{po_count} POs with in-window payments ({expected_total}) match "
         f"supplier bank outflows ({supplier_total})"
     )
 

@@ -394,7 +394,9 @@ def _pick_item_count(rng, has_discount):
 
 
 def _select_products(available, n_items, is_womens, rng):
-    """Select products for an order based on category revenue weights."""
+    """Select products for an order.
+    Pick category first (weighted by revenue_target / avg_price to get correct
+    revenue mix), then pick a random product within that category."""
     if is_womens:
         pool = [p for p in available if p["gender_segment"] == "womens"]
         if not pool:
@@ -404,22 +406,51 @@ def _select_products(available, n_items, is_womens, rng):
         if not pool:
             pool = available
 
-    # Weight by category revenue targets
-    weights = []
+    # Group by category
+    by_cat = defaultdict(list)
     for p in pool:
-        w = config.CATEGORY_REVENUE_WEIGHTS.get(p["product_type"], 0.05)
-        weights.append(w)
-    total_w = sum(weights)
+        by_cat[p["product_type"]].append(p)
+
+    if not by_cat:
+        return []
+
+    # Compute category selection weights: revenue_weight / avg_net_price
+    # This yields the correct revenue share since rev = units × price
+    cats = list(by_cat.keys())
+    cat_weights = []
+    for cat in cats:
+        rev_w = config.CATEGORY_REVENUE_WEIGHTS.get(cat, 0.05)
+        # Average net price for this category's available products
+        prices = [config.net_price(Decimal(p["price_hint"])) if "price_hint" in p
+                  else _avg_net_price(by_cat[cat], rng) for _ in [0]]
+        avg_price = _avg_net_price(by_cat[cat], rng)
+        cat_weights.append(rev_w / max(float(avg_price), 1.0))
+
+    total_w = sum(cat_weights)
     if total_w == 0:
-        weights = [1.0 / len(pool)] * len(pool)
+        cat_weights = [1.0 / len(cats)] * len(cats)
     else:
-        weights = [w / total_w for w in weights]
+        cat_weights = [w / total_w for w in cat_weights]
 
     selected = []
     for _ in range(n_items):
-        idx = rng.choice(len(pool), p=weights)
-        selected.append(pool[idx])
+        cat = rng.choice(cats, p=cat_weights)
+        product = rng.choice(by_cat[cat])
+        selected.append(product)
     return selected
+
+
+def _avg_net_price(products, rng):
+    """Average net price of a list of products (using first variant's price)."""
+    if not products:
+        return Decimal("50")
+    total = Decimal("0")
+    for p in products:
+        # Products don't carry price directly; use category average
+        avg_prices = {"Tee": 50, "Hoodie": 157, "Sweatpants": 140,
+                      "Cap": 45, "Trainer": 200, "Outerwear": 265}
+        total += Decimal(str(avg_prices.get(p["product_type"], 80)))
+    return config.net_price(total / len(products))
 
 
 def _generate_refunds(orders, line_items, var_map, prod_map, rng, end_date):
