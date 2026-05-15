@@ -345,10 +345,10 @@ def rule_05(loader):
 
 def rule_06(loader):
     data, err = _need(loader, "refunds.csv", "inventory_movements.csv",
-                       "bank_transactions.csv")
+                       "bank_transactions.csv", "orders.csv")
     if err:
         return True, err
-    refunds, movements, bank_txns = data
+    refunds, movements, bank_txns, orders = data
 
     if not refunds:
         return True, "No refunds to check"
@@ -380,34 +380,64 @@ def rule_06(loader):
                 f"expected_return={exp_qty}, movement={act_qty}"
             )
 
-    # --- Part B: refund bank transactions ---
-    total_refund_amount = sum(D(r["amount"]) for r in refunds)
-    refund_bank_total = Decimal("0")
+    # --- Part B: refund amounts vs bank — monthly aggregates, 1p per month ---
+    refund_monthly = defaultdict(lambda: Decimal("0"))
+    for r in refunds:
+        ym = _ym(r.get("created_at", ""))
+        if ym:
+            refund_monthly[ym] += D(r["amount"])
+
+    bank_refund_monthly = defaultdict(lambda: Decimal("0"))
     for bt in bank_txns:
         if _is_shopify_refund(bt.get("description", "")):
-            refund_bank_total += abs(D(bt["amount_gbp"]))
+            ym = _ym(bt["date"])
+            if ym:
+                bank_refund_monthly[ym] += abs(D(bt["amount_gbp"]))
 
-    # Allow per-refund tolerance scaled by count
-    bank_tol = TOLERANCE * max(len(refunds), 1)
-    bank_ok = abs(total_refund_amount - refund_bank_total) <= bank_tol
+    all_months = sorted(set(refund_monthly) | set(bank_refund_monthly))
+    bad_bank = []
+    for ym in all_months:
+        ref_amt = refund_monthly.get(ym, Decimal("0"))
+        bank_amt = bank_refund_monthly.get(ym, Decimal("0"))
+        if abs(ref_amt - bank_amt) > TOLERANCE:
+            bad_bank.append(
+                f"{ym}: refunds={ref_amt}, bank={bank_amt}, "
+                f"diff={ref_amt - bank_amt}"
+            )
+
+    # --- Part C: timing — each refund must be after its order ---
+    order_dates = {o["order_id"]: o["created_at"] for o in orders}
+    bad_timing = []
+    for r in refunds:
+        order_date = order_dates.get(r["order_id"], "")
+        refund_date = r.get("created_at", "")
+        if order_date and refund_date and refund_date < order_date:
+            bad_timing.append(
+                f"refund {r['refund_id']}: created {refund_date} "
+                f"BEFORE order {r['order_id']} created {order_date}"
+            )
 
     msgs = []
     if bad_inv:
         msgs.append(
             f"Missing/mismatched return movements: {len(bad_inv)}\n{_fmt(bad_inv)}"
         )
-    if not bank_ok:
+    if bad_bank:
         msgs.append(
-            f"Refund bank mismatch: total_refunds={total_refund_amount}, "
-            f"bank_refund_txns={refund_bank_total}, "
-            f"diff={total_refund_amount - refund_bank_total}"
+            f"Monthly refund vs bank mismatches: {len(bad_bank)}\n{_fmt(bad_bank)}"
+        )
+    if bad_timing:
+        msgs.append(
+            f"Refunds dated before their orders: {len(bad_timing)}\n"
+            f"{_fmt(bad_timing)}"
         )
 
     if msgs:
         return False, "\n".join(msgs)
     return True, (
-        f"All {len(expected_returns)} return movements + "
-        f"bank total ({refund_bank_total}) reconcile"
+        f"All {len(expected_returns)} return movements reconcile, "
+        f"monthly bank totals match across {len(all_months)} months, "
+        f"all refund dates valid"
     )
 
 
@@ -945,34 +975,48 @@ def rule_20(loader):
             conv_by_camp[r["campaign_name"]] += int(r.get("conversions", 0))
         meta_with_conv = {c for c, n in conv_by_camp.items() if n > 0}
 
-    # Campaigns with reported conversions but zero orders
-    # (Note: ads overclaim ~15%, so some orders is enough — we just check non-zero)
+    # --- Direction B: ads/email → orders ---
+    # Campaigns reporting conversions should have at least one matching order.
+    # Exclude email flows (automated, attribution is different) and awareness
+    # campaigns. Ads overclaim ~15%, but a campaign with real conversions
+    # should still have SOME Shopify-attributed orders.
     ads_with_conv = google_with_conv | meta_with_conv
-    orphan_ads = ads_with_conv - order_camps
-    # Don't fail on this — platforms can report conversions that don't appear in
-    # Shopify as direct UTM matches (view-through, cross-device, etc.)
+
+    # Filter out awareness-only Meta campaigns
+    awareness_camps = set()
+    if meta:
+        for r in meta:
+            if r.get("campaign_objective", "").lower() == "awareness":
+                awareness_camps.add(r["campaign_name"])
+
+    orphan_ads = (ads_with_conv - order_camps) - awareness_camps
 
     msgs = []
+
+    # Direction A failures
     if orphan_orders:
         examples = sorted(orphan_orders)[:3]
         msgs.append(
-            f"Order UTM campaigns not in any ads/email table: "
+            f"A: Order UTM campaigns not in any ads/email table: "
             f"{len(orphan_orders)}\n{_fmt(examples)}"
+        )
+
+    # Direction B failures
+    if orphan_ads:
+        examples = sorted(orphan_ads)[:3]
+        msgs.append(
+            f"B: Ad campaigns with conversions but zero matching orders: "
+            f"{len(orphan_ads)}\n{_fmt(examples)}"
         )
 
     if msgs:
         return False, "\n".join(msgs)
 
     info = (
-        f"Consistent: {len(order_camps)} order campaigns, "
+        f"Bidirectional check passed: {len(order_camps)} order campaigns, "
         f"{len(google_camps)} Google, {len(meta_camps)} Meta, "
         f"{len(email_camps)} email"
     )
-    if orphan_ads:
-        info += (
-            f" (note: {len(orphan_ads)} ad campaigns with platform conversions "
-            f"but no direct UTM-matched orders — expected due to overclaiming)"
-        )
     return True, info
 
 
