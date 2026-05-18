@@ -191,12 +191,13 @@ def _order_quantity(product, variant, gender, rng, months_avail=24):
         mid_sizes = ["UK8", "UK9", "UK10"]
         qty = int(qty * 1.3) if size in mid_sizes else int(qty * 0.7)
 
-    # Weakness #8: slow-moving womens SKUs over-ordered
+    # Weakness #8: slow-moving womens SKUs moderately over-ordered
+    # Produces DIO ~200-350 (clearly above portfolio avg ~75 but not absurd)
     if gender == "womens":
         if "Relaxed Hoodie" in title and colour == "Burgundy" and size in ("M", "L"):
-            qty = 120 if size == "M" else 80
+            qty = 50 if size == "M" else 40
         elif "Wide-Leg Sweatpant" in title and colour == "Sage" and size in ("M", "L"):
-            qty = 100 if size == "M" else 60
+            qty = 25 if size == "M" else 18
 
     qty = max(10, int(qty * (1.0 + rng.uniform(-0.1, 0.1))))
     return qty

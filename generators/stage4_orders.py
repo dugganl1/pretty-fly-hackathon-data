@@ -85,6 +85,7 @@ def generate(cfg, prior_data):
     refunds = []
     customer_map = {}  # email -> customer dict
     womens_customer_emails = []  # for targeted womens repeat orders
+    recent_customer_emails = []  # recency-weighted pool for repeat selection
     cust_counter = 0
     order_counter = 0
     li_counter = 0
@@ -178,15 +179,32 @@ def generate(cfg, prior_data):
             utm_campaign = _pick_campaign(utm_source, current, gender, rng)
 
             # Determine if customer is new or returning
-            is_repeat = len(customer_map) > 0 and rng.random() < _repeat_prob(
-                current, gender)
+            months_elapsed = ((current.year - start_date.year) * 12
+                              + current.month - start_date.month)
+
+            # Prospecting ad campaigns should mostly acquire NEW customers
+            is_prospecting = utm_campaign in (
+                "Prospecting_Mens_UK", "Prospecting_Mens_EU",
+                "Womens_Launch_Prospecting",
+            )
+            if is_prospecting:
+                is_repeat = (len(customer_map) > 10
+                             and rng.random() < 0.10)  # 90% new for prospecting
+            else:
+                is_repeat = (len(customer_map) > 10
+                             and rng.random() < _repeat_prob(
+                                 months_elapsed, gender))
 
             if is_repeat:
-                # Pick an existing customer — womens orders target womens customers
+                # Pick from recent customers (recency-weighted, not uniform)
+                # Womens orders specifically target womens customers
                 if is_womens_order and womens_customer_emails:
-                    cust_email = rng.choice(womens_customer_emails)
+                    pool = womens_customer_emails
+                elif recent_customer_emails:
+                    pool = recent_customer_emails
                 else:
-                    cust_email = rng.choice(list(customer_map.keys()))
+                    pool = list(customer_map.keys())
+                cust_email = rng.choice(pool)
                 cust = customer_map[cust_email]
                 cust_id = cust["customer_id"]
             else:
@@ -352,6 +370,14 @@ def generate(cfg, prior_data):
 
             line_items.extend(order_li)
 
+            # Add this customer to recent pool (for recency-weighted repeat selection)
+            # Keep pool size bounded to ~last 2000 customers for concentration
+            cust_email_for_pool = cust.get("email", "")
+            if cust_email_for_pool:
+                recent_customer_emails.append(cust_email_for_pool)
+                if len(recent_customer_emails) > 2000:
+                    recent_customer_emails.pop(0)
+
         current += timedelta(days=1)
 
     # Generate refunds
@@ -386,11 +412,20 @@ def generate(cfg, prior_data):
     }
 
 
-def _repeat_prob(order_date, gender):
-    """Probability that an order is from a returning customer."""
-    base = 0.22
+def _repeat_prob(months_elapsed, gender):
+    """Probability that a NON-PROSPECTING order goes to a returning customer.
+    Ramps up as the customer base grows. Prospecting campaigns bypass this
+    and force ~90% new customers (handled in the caller)."""
+    if months_elapsed < 2:
+        base = 0.20
+    elif months_elapsed < 6:
+        base = 0.58
+    elif months_elapsed < 12:
+        base = 0.72
+    else:
+        base = 0.78
     if gender == "womens":
-        base = 0.35  # Womens repeat higher
+        base = min(0.88, base + 0.10)
     return base
 
 
