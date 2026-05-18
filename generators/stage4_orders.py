@@ -196,11 +196,14 @@ def generate(cfg, prior_data):
                                  months_elapsed, gender))
 
             if is_repeat:
-                # Pick from recent customers (recency-weighted, not uniform)
-                # Womens orders specifically target womens customers
-                if is_womens_order and womens_customer_emails:
+                # Womens repeats: 50% from dedicated pool (concentrated, fast),
+                # 50% from general pool (diluted, varied intervals).
+                # Produces ~50% womens 120-day repeat vs ~38% mens.
+                # Mens: 55% from recent pool, 45% from full base.
+                if (is_womens_order and womens_customer_emails
+                        and rng.random() < 0.50):
                     pool = womens_customer_emails
-                elif recent_customer_emails:
+                elif rng.random() < 0.55 and recent_customer_emails:
                     pool = recent_customer_emails
                 else:
                     pool = list(customer_map.keys())
@@ -371,11 +374,13 @@ def generate(cfg, prior_data):
             line_items.extend(order_li)
 
             # Add this customer to recent pool (for recency-weighted repeat selection)
-            # Keep pool size bounded to ~last 2000 customers for concentration
+            # Pool size 5000 ≈ 3-4 months of customers, giving natural repeat
+            # intervals of 30-120 days instead of the 7-14 day median a smaller
+            # pool produces.
             cust_email_for_pool = cust.get("email", "")
             if cust_email_for_pool:
                 recent_customer_emails.append(cust_email_for_pool)
-                if len(recent_customer_emails) > 2000:
+                if len(recent_customer_emails) > 5000:
                     recent_customer_emails.pop(0)
 
         current += timedelta(days=1)
@@ -417,15 +422,15 @@ def _repeat_prob(months_elapsed, gender):
     Ramps up as the customer base grows. Prospecting campaigns bypass this
     and force ~90% new customers (handled in the caller)."""
     if months_elapsed < 2:
-        base = 0.20
+        base = 0.18
     elif months_elapsed < 6:
-        base = 0.58
+        base = 0.52
     elif months_elapsed < 12:
-        base = 0.72
+        base = 0.66
     else:
-        base = 0.78
+        base = 0.74
     if gender == "womens":
-        base = min(0.88, base + 0.10)
+        base = min(0.80, base + 0.06)
     return base
 
 
