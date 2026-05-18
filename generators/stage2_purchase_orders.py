@@ -95,10 +95,13 @@ def generate(cfg, prior_data):
             ptype = p["product_type"]
             gender = p["gender_segment"]
 
+            # How many months this product will be sellable
+            months_avail = max(1, (end_date - launch).days / 30)
+
             for v in var_by_product.get(pid, []):
                 pl_counter += 1
                 vid = v["variant_id"]
-                qty = _order_quantity(p, v, gender, rng)
+                qty = _order_quantity(p, v, gender, rng, months_avail)
 
                 retail_price = Decimal(v["price"])
                 net_retail = config.net_price(retail_price)
@@ -161,16 +164,22 @@ def generate(cfg, prior_data):
     }
 
 
-def _order_quantity(product, variant, gender, rng):
-    """Determine PO quantity for a variant."""
+def _order_quantity(product, variant, gender, rng, months_avail=24):
+    """Determine PO quantity for a variant, scaled by months available."""
     ptype = product["product_type"]
     size = variant["option1_value"]
     colour = variant["option2_value"]
     title = product["title"]
 
-    base = {"Tee": 80, "Hoodie": 50, "Sweatpants": 45, "Cap": 60,
-            "Trainer": 30, "Outerwear": 25}
+    # Base per-variant quantities sized for ~8 months of demand.
+    # Products available longer get proportionally more stock.
+    base = {"Tee": 75, "Hoodie": 48, "Sweatpants": 42, "Cap": 50,
+            "Trainer": 26, "Outerwear": 24}
     qty = base.get(ptype, 40)
+
+    # Scale by months available (relative to 8-month base, capped at 3.0)
+    time_scale = max(0.3, min(months_avail / 8.0, 3.0))
+    qty = int(qty * time_scale)
 
     size_mult = {"XS": 0.5, "S": 0.8, "M": 1.2, "L": 1.0, "XL": 0.6, "ONE": 1.0}
     for s, m in size_mult.items():

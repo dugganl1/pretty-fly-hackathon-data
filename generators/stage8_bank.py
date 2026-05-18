@@ -52,24 +52,19 @@ def generate(cfg, prior_data):
             settle_date = end_date
         order_by_week[settle_date].append(o)
 
-    refund_by_week = defaultdict(list)
+    # Refunds batched by calendar month (not settlement week) so monthly
+    # totals match exactly between refunds table and bank entries
+    refund_by_month = defaultdict(list)
     for r in refunds:
         rdate = date.fromisoformat(r["created_at"][:10])
-        days_to_sunday = (6 - rdate.weekday()) % 7
-        week_end = rdate + timedelta(days=days_to_sunday)
-        settle_date = week_end + timedelta(days=3)
-        if settle_date > end_date:
-            settle_date = end_date
-        refund_by_week[settle_date].append(r)
+        refund_by_month[(rdate.year, rdate.month)].append(r)
 
-    all_settle_dates = sorted(set(order_by_week.keys()) | set(refund_by_week.keys()))
+    all_settle_dates = sorted(order_by_week.keys())
     payout_ref = 82900
     refund_batch = 880
 
     for sd in all_settle_dates:
         week_orders = order_by_week.get(sd, [])
-        week_refunds = refund_by_week.get(sd, [])
-
         if week_orders:
             gross = sum(Decimal(o["total_price"]) for o in week_orders)
             fees = config.quantize(gross * config.SHOPIFY_PAYMENT_FEE_RATE)
@@ -79,12 +74,20 @@ def generate(cfg, prior_data):
                  f"SHOPIFY* {rng.integers(1000, 9999)} PAYOUT REF#{payout_ref}",
                  payout, "Shopify", "PAYOUT")
 
-        if week_refunds:
-            refund_total = sum(Decimal(r["amount"]) for r in week_refunds)
-            refund_batch += 1
-            _add(sd,
-                 f"SHOPIFY REFUND BATCH {refund_batch}",
-                 -refund_total, "Shopify", "REFUND")
+    # One refund batch per month, on the last day of the month
+    for (ry, rm), month_refunds in sorted(refund_by_month.items()):
+        refund_total = sum(Decimal(r["amount"]) for r in month_refunds)
+        if refund_total <= 0:
+            continue
+        if rm == 12:
+            last_day = date(ry, 12, 31)
+        else:
+            last_day = date(ry, rm + 1, 1) - timedelta(days=1)
+        last_day = min(last_day, end_date)
+        refund_batch += 1
+        _add(last_day,
+             f"SHOPIFY REFUND BATCH {refund_batch}",
+             -refund_total, "Shopify", "REFUND")
 
     # --- 2. Google Ads (monthly, last day of spending month) ---
     google_monthly = defaultdict(lambda: Decimal("0"))

@@ -84,6 +84,7 @@ def generate(cfg, prior_data):
     line_items = []
     refunds = []
     customer_map = {}  # email -> customer dict
+    womens_customer_emails = []  # for targeted womens repeat orders
     cust_counter = 0
     order_counter = 0
     li_counter = 0
@@ -94,10 +95,11 @@ def generate(cfg, prior_data):
     discount_usage = defaultdict(int)
 
     # Calculate total orders target for the period
+    # Spec: 20-25k orders/year. At 22.5k/year = 45k over 24 months.
+    # With 2%/month growth and seasonality, base_daily=55 yields ~20k Y1, ~25k Y2.
     total_days = (end_date - start_date).days + 1
     months_count = max(1, total_days / 30)
-    # Target ~22k orders over 24 months = ~917/month in Y1, growing to ~1083 in Y2
-    base_daily = 30  # ~900/month base
+    base_daily = 48
 
     current = start_date
     while current <= end_date:
@@ -180,8 +182,11 @@ def generate(cfg, prior_data):
                 current, gender)
 
             if is_repeat:
-                # Pick an existing customer
-                cust_email = rng.choice(list(customer_map.keys()))
+                # Pick an existing customer — womens orders target womens customers
+                if is_womens_order and womens_customer_emails:
+                    cust_email = rng.choice(womens_customer_emails)
+                else:
+                    cust_email = rng.choice(list(customer_map.keys()))
                 cust = customer_map[cust_email]
                 cust_id = cust["customer_id"]
             else:
@@ -212,13 +217,17 @@ def generate(cfg, prior_data):
                 }
                 customers.append(cust)
                 customer_map[email] = cust
+                if is_womens_order:
+                    womens_customer_emails.append(email)
 
                 # Address
                 addr = _make_address(cust_id, first, last, country, rng)
                 addresses.append(addr)
 
             # Build line items for this order
-            n_items = _pick_item_count(rng, has_discount=False)  # adjusted below
+            # Womens orders tend to have slightly larger baskets (AOV boost)
+            n_items = _pick_item_count(rng, has_discount=False,
+                                        is_womens=is_womens_order)
 
             # Discount code?
             discount_code = ""
@@ -232,7 +241,8 @@ def generate(cfg, prior_data):
                 code_info = rng.choice(active_codes)
                 discount_code = code_info["code"]
                 # Weakness #4: discounted orders have smaller baskets
-                n_items = _pick_item_count(rng, has_discount=True)
+                n_items = _pick_item_count(rng, has_discount=True,
+                                            is_womens=is_womens_order)
 
             # Select products for this order
             order_products = _select_products(
@@ -384,11 +394,14 @@ def _repeat_prob(order_date, gender):
     return base
 
 
-def _pick_item_count(rng, has_discount):
+def _pick_item_count(rng, has_discount, is_womens=False):
     """Pick number of items in an order."""
     if has_discount:
         # Weakness #4: smaller baskets when discounted
         return rng.choice([1, 1, 1, 1, 2], p=[0.80, 0.0, 0.0, 0.0, 0.20])
+    if is_womens:
+        # Weakness #1: womens customers build larger baskets (higher AOV)
+        return rng.choice([1, 2, 3, 4], p=[0.45, 0.35, 0.15, 0.05])
     # Normal distribution: 70% single, 20% two, 8% three, 2% four
     return rng.choice([1, 2, 3, 4], p=[0.70, 0.20, 0.08, 0.02])
 

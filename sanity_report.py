@@ -186,13 +186,25 @@ def report_topline(data):
     unique_customers = len({o["customer_id"] for o in data.orders})
     aov = _ratio(net_sales, order_count) if order_count else Decimal("0")
 
-    # COGS
-    cogs = Decimal("0")
+    # COGS — all units sold
+    cogs_gross = Decimal("0")
     for li in data.line_items:
         vid = li["variant_id"]
         cost = data.landed_cost.get(vid, Decimal("0"))
-        cogs += D(li["quantity"]) * cost
+        cogs_gross += D(li["quantity"]) * cost
 
+    # Subtract COGS of returned items (returned to inventory, cost reversed)
+    returned_cogs = Decimal("0")
+    for r in data.refunds:
+        raw = r.get("refund_line_items", "[]")
+        try:
+            variant_ids = json.loads(raw) if raw else []
+        except (json.JSONDecodeError, TypeError):
+            variant_ids = []
+        for vid in variant_ids:
+            returned_cogs += data.landed_cost.get(vid, Decimal("0"))
+
+    cogs = cogs_gross - returned_cogs
     gross_profit = net_sales - cogs
     gross_margin = _pct(gross_profit, net_sales) if net_sales else Decimal("0")
 

@@ -67,14 +67,6 @@ def generate(cfg, prior_data):
         channel = rng.choice([c[0] for c in CHANNELS],
                              p=[c[1] for c in CHANNELS])
 
-        # Category
-        cat_names = [c[0] for c in TICKET_CATEGORIES]
-        cat_weights = [c[1] for c in TICKET_CATEGORIES]
-        category = rng.choice(cat_names, p=cat_weights)
-
-        # Priority
-        priority = rng.choice(["low", "normal", "high"], p=[0.2, 0.6, 0.2])
-
         # Related product (from order's line items)
         related_product_id = ""
         olis = [li for li in prior_data["line_items"]
@@ -82,6 +74,24 @@ def generate(cfg, prior_data):
         if olis:
             li = rng.choice(olis)
             related_product_id = li["product_id"]
+
+        # Determine if this is a womens-related ticket
+        is_womens_product = (prod_map.get(related_product_id, {})
+                             .get("gender_segment") == "womens")
+
+        # Category — Weakness #7: womens tickets skew heavily to sizing
+        if is_womens_product:
+            # 31% sizing for womens vs 12% for mens
+            cat_names = [c[0] for c in TICKET_CATEGORIES]
+            cat_weights = [0.25, 0.31, 0.15, 0.08, 0.08, 0.08, 0.05]
+            category = rng.choice(cat_names, p=cat_weights)
+        else:
+            cat_names = [c[0] for c in TICKET_CATEGORIES]
+            cat_weights = [0.32, 0.12, 0.16, 0.12, 0.12, 0.11, 0.05]
+            category = rng.choice(cat_names, p=cat_weights)
+
+        # Priority
+        priority = rng.choice(["low", "normal", "high"], p=[0.2, 0.6, 0.2])
 
         # Resolution
         is_bot = rng.random() < 0.40
@@ -347,17 +357,125 @@ def _bot_response(category, oid, tracking, rng):
 
 
 def _agent_response(category, pname, oid, tracking, rng):
-    """Generate a human agent response."""
-    return rng.choice([
-        f"Hey, I've had a look at order {oid} and I can see what's happened. "
-        f"I've sorted this for you — you should get a confirmation email shortly.",
-        f"Hi there, thanks for your patience. I've reviewed the {pname} from "
-        f"order {oid} and I've processed this for you. Let me know if "
-        f"you need anything else!",
-        f"No worries, I've taken care of this. For order {oid}, I've "
-        f"[updated the tracking / arranged a replacement / issued a refund]. "
-        f"You'll get an email confirming everything.",
-    ])
+    """Generate a human agent response — 4-6 variations per category,
+    varying in tone, length, and specifics."""
+    responses = {
+        "order_status": [
+            f"Hey, I've checked on order {oid} and your tracking is {tracking}. "
+            f"Looks like it's been scanned at the depot and should be with you "
+            f"by tomorrow. Sorry for the delay!",
+            f"Hi! I've had a dig into order {oid} — there was a slight delay "
+            f"at the sorting centre but it's moving again. Tracking ref is "
+            f"{tracking}, should arrive within 48 hours.",
+            f"Sorted — I've escalated order {oid} with the courier. Tracking "
+            f"{tracking} shows it's in transit now. I'll keep an eye on it and "
+            f"email you if anything changes.",
+            f"No worries at all. Order {oid} (tracking: {tracking}) left our "
+            f"warehouse on time but got held up briefly with Royal Mail. "
+            f"Should be delivered tomorrow. Apologies for the wait.",
+            f"I can see order {oid} is with DHL now, ref {tracking}. It's "
+            f"showing as out for delivery today actually! Let me know if it "
+            f"doesn't arrive by end of day.",
+        ],
+        "sizing_fit": [
+            f"Hey! So the {pname} is cut relaxed — if you're between sizes "
+            f"I'd suggest going with your usual. Length-wise it sits just "
+            f"below the hip. Happy to help if you need more detail!",
+            f"Good question. The {pname} does run slightly oversized, that's "
+            f"intentional for the silhouette. If you prefer a more fitted "
+            f"look, size down. Otherwise true to size for the relaxed fit.",
+            f"For the {pname}, chest is generous (relaxed cut), so if you're "
+            f"say a medium and like a closer fit, small would work. I'm a "
+            f"medium and wear medium in this — it drapes nicely without "
+            f"being baggy.",
+            f"That's frustrating, sorry about that. Looking at order {oid}, "
+            f"I'd recommend going one size up in the {pname}. I've set up a "
+            f"free exchange — check your email for the return label. The new "
+            f"one ships same day we receive yours.",
+            f"So sorry the {pname} didn't work out. I've arranged a free "
+            f"size exchange for order {oid}. Return label is on its way to "
+            f"your email now, and I've reserved your new size.",
+        ],
+        "returns_exchanges": [
+            f"All sorted — I've generated a free return label for order "
+            f"{oid}. It'll be in your inbox shortly. Once we receive the "
+            f"{pname} back, refund processes within 3-5 working days.",
+            f"No problem at all. I've started the return for order {oid}. "
+            f"Return label is being emailed to you now. Just drop the "
+            f"parcel at any Royal Mail post office.",
+            f"Done! Return label for the {pname} from order {oid} is on its "
+            f"way. If you'd prefer an exchange instead of a refund, just "
+            f"let me know the new size and I'll sort that.",
+            f"I've processed the return for order {oid}. You should see the "
+            f"label in your email within the hour. Refund hits your account "
+            f"within 5 days of us receiving it back.",
+            f"Completely understand. I've issued your return label for "
+            f"order {oid} and flagged it as priority. Pop it in the post "
+            f"when you can — we'll refund as soon as it's scanned.",
+        ],
+        "discount_code": [
+            f"Found it — looks like the code was case-sensitive and needed "
+            f"to be entered in capitals. I've applied it manually to order "
+            f"{oid} and adjusted your total. Check your email for the "
+            f"updated receipt!",
+            f"So that code had actually expired yesterday — bad timing! I've "
+            f"gone ahead and applied the same discount to order {oid} as a "
+            f"one-off. You should see the updated amount now.",
+            f"Ah I see the issue — that code doesn't work with sale items, "
+            f"which is a bit annoying. I've applied a 10% manual discount "
+            f"to order {oid} instead. Hope that helps!",
+            f"Sorted! The code wasn't working because there was a minimum "
+            f"spend requirement. I've overridden it for order {oid} and "
+            f"applied the discount. Updated total should show shortly.",
+        ],
+        "drop_restock": [
+            f"Great taste! The {pname} has been really popular. I can't "
+            f"give an exact restock date but I've added you to the "
+            f"notification list — you'll be first to know when it's back.",
+            f"So the {pname} is part of a limited run and we're not "
+            f"sure yet if we'll restock. But I've flagged your interest "
+            f"with the team — if we do bring it back you'll hear from us.",
+            f"I totally get the frustration! The {pname} sold out faster "
+            f"than expected. Our next drop is roughly 8-10 weeks out "
+            f"and might include something similar. I'll make sure you're "
+            f"on the early access list.",
+            f"Noted! I can't promise a restock on the {pname} specifically "
+            f"but we've got new pieces in that same vibe dropping soon. "
+            f"I've signed you up for drop alerts so you won't miss out.",
+        ],
+        "product_quality": [
+            f"I'm really sorry about that — not the standard we aim for "
+            f"at all. I've arranged a replacement {pname} to ship out "
+            f"today. No need to return the faulty one, just keep or "
+            f"recycle it.",
+            f"That's not on. I've processed a full refund for order "
+            f"{oid} — should hit your account in 3-5 days. And I've "
+            f"flagged this with our quality team so it doesn't happen again.",
+            f"Genuinely sorry about the {pname}. I've set up a free "
+            f"replacement from our latest batch which has been "
+            f"quality-checked. Should be with you in 2-3 days.",
+            f"Ugh, that's disappointing. I've refunded order {oid} in "
+            f"full and added a £10 credit to your account for your next "
+            f"order. We're looking into the batch this came from.",
+            f"Not acceptable, I agree. I've processed a refund and "
+            f"replacement for the {pname}. The replacement ships priority "
+            f"today. Apologies again — this isn't the experience we want.",
+        ],
+        "other": [
+            f"Thanks for reaching out! I've looked into your question "
+            f"and here's what I've found — hopefully this covers it. "
+            f"Let me know if you need anything else!",
+            f"Good question! I've had a check and I think this should "
+            f"answer it. If not, happy to dig deeper — just shout.",
+            f"Hi! So to answer your question — we don't offer that "
+            f"currently but it's something the team are looking at for "
+            f"later this year. I'll make a note of your interest.",
+            f"Noted and passed on to the team! In the meantime, is there "
+            f"anything else I can help with today?",
+        ],
+    }
+    options = responses.get(category, responses["other"])
+    return rng.choice(options)
 
 
 def _rand_time(rng):
