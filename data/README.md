@@ -23,6 +23,12 @@ There's no required direction. Three rough framings — pick one, blend them, or
 
 The best builds often live at the seam between lanes. But knowing which direction you're pointing keeps the work focused.
 
+## Judging Criteria
+
+- **Execution** — does it work?
+- **Business value** — would Pretty Fly pay for this?
+- **Demo quality** — is your pitch compelling?
+
 ## What's in the box
 
 ```
@@ -211,7 +217,7 @@ Wayflyer and Fin AI folks are on-site all three days. Find us if you're stuck on
 
 Pizza is upstairs. Tools down Friday at 7pm. Pitches start immediately after.
 
-Build something great.
+Build something wonderful.
 
 ---
 
